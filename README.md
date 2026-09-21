@@ -34,36 +34,48 @@ API client ──8446────> │              API APP (nginx + php-fpm)  �
 
 ## ขั้นตอนการรัน
 
-### 1. ตั้งค่า `.env`
+### เริ่มเร็ว (3 คำสั่ง)
 
 ```bash
-cp .env.example .env
+git clone https://github.com/burachai-x/pg18-mtls-demo.git
+cd pg18-mtls-demo
+./setup.sh && docker compose up --build -d
 ```
 
-แล้วเติมค่าให้ครบทุกบรรทัดที่เว้นว่างไว้ (สุ่มค่าได้ด้วย `openssl rand -base64 32` ส่วน `GARAGE_RPC_SECRET` ต้องเป็น hex — ใช้ `openssl rand -hex 32`)
+`setup.sh` จะสร้าง `.env` พร้อมสุ่มความลับให้ทุกค่า (ไม่เขียนทับถ้ามีอยู่แล้ว) และออกใบรับรองทั้งสองชุด —
+ของ PostgreSQL/API (DemoCA) และของ Garage TLS sidecar (CA ภายในอีกใบ) รันซ้ำได้ ถ้าอยากออกใบรับรองใหม่ใช้ `./setup.sh --force`
 
-### 2. สร้างใบรับรอง (CA + server cert + client cert)
+ครั้งแรกใช้เวลาราว 2 นาที (database init + seed) ตรวจว่าพร้อมด้วย:
 
 ```bash
-chmod +x certs/generate-certs.sh
-./certs/generate-certs.sh
+docker compose ps          # db ต้องขึ้น (healthy)
 ```
 
-สคริปต์จะสร้าง:
-- `db/certs/` — CA, server cert, server key (สำหรับ PostgreSQL)
-- `web/certs/` — CA, client cert, client key (สำหรับ PHP)
+จากนั้น:
 
-### 3. รันด้วย Docker Compose
+| URL | ใช้ทำอะไร |
+|---|---|
+| `https://localhost:8444` | เว็บพอร์ทัล (self-signed — ต้องกดยอมรับคำเตือน) |
+| `https://localhost:8446/health` | เช็คว่า API APP พร้อม |
+| `http://localhost:8180` | redirect ไป HTTPS |
+
+รหัสผ่านเข้าเว็บคือค่า `SETTINGS_ADMIN_PASSWORD` ในไฟล์ `.env`:
 
 ```bash
+grep SETTINGS_ADMIN_PASSWORD .env
+```
+
+### ทำเอง (ถ้าไม่อยากใช้ setup.sh)
+
+```bash
+cp .env.example .env            # แล้วเติมค่าที่เว้นว่างเอง
+                                # (openssl rand -base64 32; GARAGE_RPC_SECRET ใช้ openssl rand -hex 32)
+./certs/generate-certs.sh       # db/certs, web/certs (CN=webapp), api/certs (CN=apiapp + CN=api)
+./garage/tls/generate-garage-certs.sh   # garage/tls/certs (CA แยกของ object storage)
 docker compose up --build
 ```
 
-### 4. เปิดเว็บ
-
-```
-http://localhost:8180
-```
+> ใบรับรองทั้งสองสคริปต์ออก CA ใหม่ทุกครั้งที่รัน แล้วลบ CA private key ทิ้ง — ถ้ารันซ้ำต้องรันครบชุดและ restart container ที่ mount ใบรับรองนั้น
 
 ## ฟีเจอร์ของแอป
 
@@ -78,7 +90,9 @@ http://localhost:8180
 |------|-----------|
 | `docker-compose.yml` | 5 services: `db` (postgres:18), `web` (พอร์ทัล), `api` (REST API), `garage` + `garage-tls` (object storage) |
 | `.env` | รหัสผ่าน + pgcrypto encryption key (ไม่ขึ้น git — ดูตัวอย่างที่ `.env.example`) |
-| `certs/generate-certs.sh` | สคริปต์สร้าง CA, server cert, client cert |
+| `setup.sh` | เตรียม `.env` + ใบรับรองทั้งหมดให้พร้อมรันในคำสั่งเดียว |
+| `certs/generate-certs.sh` | ออก DemoCA + cert ของ PostgreSQL, เว็บพอร์ทัล (CN=webapp) และ API (CN=apiapp, CN=api) |
+| `garage/tls/generate-garage-certs.sh` | ออก CA ภายในอีกใบ + cert ของ garage-tls (คนละ trust domain กับ DemoCA) |
 | `db/postgresql.conf` | เปิด SSL + ระบุ cert files |
 | `db/pg_hba.conf` | บังคับ `hostssl` + `clientcert=verify-full` |
 | `db/init.sql` | สร้าง `pgcrypto` extension + ตาราง `users` |

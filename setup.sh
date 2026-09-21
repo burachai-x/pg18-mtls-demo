@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# One-shot setup for a fresh clone:
+#   1. create .env with freshly generated secrets (never overwrites an existing one)
+#   2. issue the PostgreSQL mTLS certificates (DemoCA: db, web portal, API app)
+#   3. issue the Garage TLS sidecar certificates (separate internal CA)
+#
+# Usage:
+#   ./setup.sh            # skip anything that already exists
+#   ./setup.sh --force    # re-issue certificates (keeps .env untouched)
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT_DIR"
+
+FORCE=0
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE=1 ;;
+        -h|--help)
+            sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "unknown option: $arg (try --help)" >&2
+            exit 1
+            ;;
+    esac
+done
+
+command -v openssl >/dev/null 2>&1 || { echo "FATAL: openssl not found"; exit 1; }
+
+# ---------------------------------------------------------------- 1. .env ----
+if [ -f .env ]; then
+    echo "==> .env exists — keeping it"
+    echo "    (the pgcrypto key lives here; replacing it would make existing"
+    echo "     encrypted rows unreadable)"
+else
+    echo "==> Creating .env with generated secrets..."
+    # Fill every empty value in .env.example. base64/hex output only, so no
+    # characters that docker compose would try to interpolate.
+    python3 - <<'PY'
+import io, secrets, base64
+
+def b64(n=32):
+    return base64.b64encode(secrets.token_bytes(n)).decode()
+
+out = []
+for line in io.open('.env.example', encoding='utf-8'):
+    stripped = line.rstrip('\n')
+    if stripped.startswith('#') or '=' not in stripped:
+        out.append(stripped)
+        continue
+    key, value = stripped.split('=', 1)
+    if value.strip() == '':
+        # Garage requires a 32-byte hex RPC secret; everything else is opaque
+        value = secrets.token_hex(32) if key == 'GARAGE_RPC_SECRET' else b64()
+        out.append(f'{key}={value}')
+    else:
+        out.append(stripped)
+
+io.open('.env', 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+PY
+    chmod 600 .env
+    echo "    .env created (mode 600) — web login password is SETTINGS_ADMIN_PASSWORD in that file"
+fi
+
+# --------------------------------------------------- 2. PostgreSQL certs ----
+if [ -f db/certs/server.crt ] && [ "$FORCE" -eq 0 ]; then
+    echo "==> PostgreSQL/API certificates exist — skipping (use --force to re-issue)"
+else
+    echo "==> Issuing PostgreSQL mTLS certificates..."
+    ./certs/generate-certs.sh >/dev/null
+    echo "    db/certs, web/certs (CN=webapp), api/certs (CN=apiapp, CN=api)"
+fi
+
+# -------------------------------------------------------- 3. Garage certs ----
+if [ -f garage/tls/certs/server.crt ] && [ "$FORCE" -eq 0 ]; then
+    echo "==> Garage TLS certificates exist — skipping (use --force to re-issue)"
+else
+    echo "==> Issuing Garage TLS certificates..."
+    ./garage/tls/generate-garage-certs.sh >/dev/null
+    echo "    garage/tls/certs (CN=garage-tls, separate internal CA)"
+fi
+
+cat <<'NEXT'
+
+Setup complete. Next:
+
+    docker compose up --build -d
+
+First start takes about 2 minutes (database init + seed), then:
+
+    Web portal   https://localhost:8444      (self-signed — accept the warning)
+    REST API     https://localhost:8446      curl --cacert api/certs/ca.crt https://localhost:8446/health
+
+The portal login password is SETTINGS_ADMIN_PASSWORD in .env:
+
+    grep SETTINGS_ADMIN_PASSWORD .env
+
+Create an API token under Settings → API Tokens, then:
+
+    curl --cacert api/certs/ca.crt -H "Authorization: Bearer <token>" \
+         https://localhost:8446/api.php/users
+NEXT

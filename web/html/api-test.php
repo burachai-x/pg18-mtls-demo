@@ -32,13 +32,19 @@ require_once __DIR__ . '/crud.php';
 
         <!-- Token Info -->
         <div class="mb-6 bg-slate-800 rounded-xl p-4 border border-slate-700">
-            <div class="flex items-center gap-4">
-                <div>
-                    <div class="text-slate-400 text-sm">Default API Token</div>
-                    <div class="text-amber-400 font-mono text-sm">demo-api-token-2024</div>
+            <div class="flex items-start gap-4">
+                <div class="flex-1">
+                    <div class="text-slate-400 text-sm mb-1">ต้องมี API token ก่อนทดสอบ</div>
+                    <p class="text-slate-300 text-sm">
+                        ออก token ใหม่ได้ที่
+                        <a href="settings.php" class="text-cyan-400 hover:text-cyan-300 underline">Settings → API Tokens</a>
+                        แล้วคัดลอกมาวางในช่อง <em>API Token</em> ด้านล่าง
+                        (token จะแสดง <strong>ครั้งเดียว</strong> ตอนสร้าง)
+                    </p>
                 </div>
-                <div class="text-xs text-slate-500">
+                <div class="text-xs text-slate-500 max-w-xs">
                     Token ถูก hash (SHA-256) แล้วเก็บในตาราง <code>api_tokens</code> — ไม่เก็บ plaintext
+                    จึงดูย้อนหลังไม่ได้ ส่วน token ที่ seed ตอนติดตั้งเป็นแบบใช้ครั้งเดียว อายุ 10 นาที
                 </div>
             </div>
         </div>
@@ -87,7 +93,7 @@ require_once __DIR__ . '/crud.php';
                 </div>
                 <div>
                     <label class="block text-sm text-slate-400 mb-1">API Token</label>
-                    <input type="text" id="token" value="demo-api-token-2024"
+                    <input type="text" id="token" value="" placeholder="tok_xxxxxxxx… (จาก Settings)"
                            class="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 focus:border-cyan-500 focus:outline-none text-slate-100 font-mono text-sm">
                 </div>
             </div>
@@ -154,8 +160,14 @@ require_once __DIR__ . '/crud.php';
     function callApi() {
         const method = document.getElementById('method').value;
         const userId = document.getElementById('userId').value;
-        const token  = document.getElementById('token').value;
+        const token  = document.getElementById('token').value.trim();
         const body   = document.getElementById('body').value;
+
+        if (!token) {
+            document.getElementById('response').textContent =
+                'ยังไม่ได้ใส่ API token — ออก token ที่หน้า Settings → API Tokens แล้วนำมาวางในช่อง API Token';
+            return;
+        }
 
         let url = '/api.php/users';
         if (userId) url += '/' + userId;

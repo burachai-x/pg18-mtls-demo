@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+      # Passwords for the per-service login roles (webapp / apiapp)
+      WEB_DB_PASSWORD: ${WEB_DB_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
       PGCRYPTO_KEY: ${PGCRYPTO_KEY}
     # No host port publishing — DB is internal only (web connects via Docker network)
     expose:
@@ -69,7 +71,9 @@ services:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
+      # Role name must match this service's certificate CN
+      DB_USER: webapp
+      DB_PASSWORD: ${WEB_DB_PASSWORD}
       S3_ENDPOINT: http://127.0.0.1:3901
       # Where the HTTP listener should redirect to (matches the published port)
       PUBLIC_HTTPS_PORT: ${HTTPS_PORT:-443}
@@ -143,7 +147,9 @@ services:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
+      # Role name must match this service's certificate CN
+      DB_USER: apiapp
+      DB_PASSWORD: ${API_DB_PASSWORD}
       # Own cert directory — the API authenticates to PostgreSQL as CN=apiapp
       PG_CERT_DIR: /tmp/api-pg-certs
       PGCRYPTO_KEY: ${PGCRYPTO_KEY}

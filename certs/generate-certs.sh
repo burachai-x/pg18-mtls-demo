@@ -30,7 +30,7 @@ openssl x509 -req -days 3650 \
   -out server.crt \
   -extfile <(printf "subjectAltName=DNS:db,DNS:localhost\nextendedKeyUsage=serverAuth\n")
 
-echo "==> Generating PHP client cert (web portal)..."
+echo "==> Generating PHP client cert (web portal, CN must equal role webapp)..."
 openssl req -new -nodes \
   -keyout client.key \
   -out client.csr \
@@ -43,7 +43,8 @@ openssl x509 -req -days 3650 \
   -extfile <(printf "extendedKeyUsage=clientAuth\n")
 
 echo "==> Generating PHP client cert (API app)..."
-# API app has its own DB identity — CN=apiapp, mapped to appuser in db/pg_ident.conf
+# API app has its own DB identity — CN=apiapp, which must equal its PostgreSQL
+# role name (pg_hba: clientcert=verify-full)
 openssl req -new -nodes \
   -keyout api-client.key \
   -out api-client.csr \

@@ -5,18 +5,20 @@ require_once __DIR__ . '/auth.php';
 $host = getenv('DB_HOST') ?: 'db';
 $port = getenv('DB_PORT') ?: '5432';
 $dbname = getenv('DB_NAME') ?: 'appdb';
-$user   = getenv('DB_USER') ?: 'appuser';
+$user   = getenv('DB_USER') ?: 'webapp';
+$password = getenv('DB_PASSWORD') ?: null;
 
-$sslRootCert = '/tmp/pg-certs/ca.crt';
-$sslCert     = '/tmp/pg-certs/client.crt';
-$sslKey      = '/tmp/pg-certs/client.key';
+$certDir     = rtrim(getenv('PG_CERT_DIR') ?: '/tmp/pg-certs', '/');
+$sslRootCert = $certDir . '/ca.crt';
+$sslCert     = $certDir . '/client.crt';
+$sslKey      = $certDir . '/client.key';
 
 $results = [];
 
 // ── Test 1: No client cert ──
 $dsn1 = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=verify-full;sslrootcert={$sslRootCert}";
 try {
-    $pdo = new PDO($dsn1, $user, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo = new PDO($dsn1, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $pdo->query("SELECT 1");
     $results[] = [
         'name'    => '1. ไม่มี client cert',
@@ -40,7 +42,7 @@ try {
 // ── Test 2: Valid client cert ──
 $dsn2 = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=verify-full;sslrootcert={$sslRootCert};sslcert={$sslCert};sslkey={$sslKey}";
 try {
-    $pdo = new PDO($dsn2, $user, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo = new PDO($dsn2, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $stmt = $pdo->query("SELECT 1 AS test");
     $row = $stmt->fetch();
     $results[] = [
@@ -71,7 +73,7 @@ $fakeKey  = '/tmp/fake_client.key';
 if (file_exists($fakeCert) && file_exists($fakeKey)) {
     $dsn3 = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=verify-full;sslrootcert={$sslRootCert};sslcert={$fakeCert};sslkey={$fakeKey}";
     try {
-        $pdo = new PDO($dsn3, $user, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo = new PDO($dsn3, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $pdo->query("SELECT 1");
         $results[] = [
             'name'    => '3. Client cert ปลอม (ไม่ได้ลงนามโดย CA)',
@@ -102,6 +104,32 @@ if (file_exists($fakeCert) && file_exists($fakeKey)) {
     ];
 }
 
+// ── Test 3b: Valid client cert but wrong password ──
+// pg_hba uses scram-sha-256 + clientcert=verify-full: the certificate alone
+// must not be enough to get in.
+$dsnPw = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=verify-full;sslrootcert={$sslRootCert};sslcert={$sslCert};sslkey={$sslKey}";
+try {
+    $pdo = new PDO($dsnPw, $user, 'definitely-not-the-password', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->query("SELECT 1");
+    $results[] = [
+        'name'    => '3b. cert ถูกต้อง แต่รหัสผ่านผิด',
+        'desc'    => 'ใช้ client cert ที่ถูกต้อง แต่ส่งรหัสผ่านผิด (ทดสอบปัจจัยที่สอง)',
+        'expect'  => 'FAIL',
+        'actual'  => 'SUCCESS',
+        'passed'  => false,
+        'detail'  => 'ไม่ควรเชื่อมต่อได้ — แปลว่ารหัสผ่านไม่ได้ถูกตรวจ (มีปัญหา!)',
+    ];
+} catch (PDOException $e) {
+    $results[] = [
+        'name'    => '3b. cert ถูกต้อง แต่รหัสผ่านผิด',
+        'desc'    => 'ใช้ client cert ที่ถูกต้อง แต่ส่งรหัสผ่านผิด (ทดสอบปัจจัยที่สอง)',
+        'expect'  => 'FAIL',
+        'actual'  => 'FAIL',
+        'passed'  => true,
+        'detail'  => $e->getMessage(),
+    ];
+}
+
 // ── Test 4: Wrong CA (untrusted server) ──
 $fakeCA = '/tmp/fake_ca.crt';
 @shell_exec("openssl req -new -x509 -nodes -keyout /tmp/fake_ca.key -out {$fakeCA} -subj '/CN=FakeCA' -days 1 2>/dev/null");
@@ -109,7 +137,7 @@ $fakeCA = '/tmp/fake_ca.crt';
 if (file_exists($fakeCA)) {
     $dsn4 = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=verify-full;sslrootcert={$fakeCA};sslcert={$sslCert};sslkey={$sslKey}";
     try {
-        $pdo = new PDO($dsn4, $user, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo = new PDO($dsn4, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $pdo->query("SELECT 1");
         $results[] = [
             'name'    => '4. CA ผิด (ไม่ trust server)',
@@ -143,7 +171,7 @@ if (file_exists($fakeCA)) {
 // ── Test 5: No SSL (plaintext) ──
 $dsn5 = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=disable";
 try {
-    $pdo = new PDO($dsn5, $user, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo = new PDO($dsn5, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $pdo->query("SELECT 1");
     $results[] = [
         'name'    => '5. ไม่ใช้ SSL (plaintext)',

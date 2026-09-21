@@ -10,9 +10,29 @@ if ! [[ "$POSTGRES_DB" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
     echo "[init-user] FATAL: POSTGRES_DB contains invalid characters — refusing to use as SQL identifier"
     exit 1
 fi
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -v app_pass="$APP_USER_PASSWORD" <<-EOSQL
-    CREATE USER appuser WITH PASSWORD :'app_pass';
+# Roles:
+#   appuser        — holds the table privileges, cannot log in
+#   webapp, apiapp — login roles, one per service, named after their client
+#                    certificate CN (pg_hba uses clientcert=verify-full, which
+#                    requires CN == role name) and each with its own password
+for var in WEB_DB_PASSWORD API_DB_PASSWORD; do
+    if [ -z "${!var:-}" ]; then
+        echo "[init-user] FATAL: $var is not set — refusing to create a passwordless login role"
+        exit 1
+    fi
+done
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+     -v web_pass="$WEB_DB_PASSWORD" -v api_pass="$API_DB_PASSWORD" <<-EOSQL
+    CREATE ROLE appuser NOLOGIN;
     GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO appuser;
+
+    CREATE ROLE webapp LOGIN PASSWORD :'web_pass';
+    CREATE ROLE apiapp LOGIN PASSWORD :'api_pass';
+
+    -- both services inherit exactly the privileges granted to appuser in init.sql
+    GRANT appuser TO webapp;
+    GRANT appuser TO apiapp;
 EOSQL
 
 # Write crypto key as a psql variable file for seed.sql to include

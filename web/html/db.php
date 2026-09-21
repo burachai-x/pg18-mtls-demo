@@ -10,7 +10,11 @@ function getDb(): PDO
     $host = getenv('DB_HOST') ?: 'db';
     $port = getenv('DB_PORT') ?: '5432';
     $dbname = getenv('DB_NAME') ?: 'appdb';
-    $user   = getenv('DB_USER') ?: 'appuser';
+    // Role name must equal the client certificate CN — pg_hba uses
+    // clientcert=verify-full, so webapp connects as webapp, apiapp as apiapp.
+    $user   = getenv('DB_USER') ?: 'webapp';
+    // Second factor: the role's SCRAM password (the certificate is the first)
+    $password = getenv('DB_PASSWORD') ?: null;
 
     // Cert directory is configurable so the API service can keep its own
     // client identity (CN=apiapp) separate from the web portal's (CN=webapp).
@@ -26,7 +30,7 @@ function getDb(): PDO
          . "sslkey={$sslKey}";
 
     try {
-        $pdo = new PDO($dsn, $user, null, [
+        $pdo = new PDO($dsn, $user, $password, [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);

@@ -9,11 +9,17 @@ require_once __DIR__ . '/mask.php';
 $host = getenv('DB_HOST') ?: 'db';
 $port = getenv('DB_PORT') ?: '5432';
 $dbname = getenv('DB_NAME') ?: 'appdb';
-$user   = getenv('DB_USER') ?: 'appuser';
+$user   = getenv('DB_USER') ?: 'webapp';
 
-$sslRootCert = '/tmp/pg-certs/ca.crt';
-$sslCert     = '/tmp/pg-certs/client.crt';
-$sslKey      = '/tmp/pg-certs/client.key';
+$certDir     = rtrim(getenv('PG_CERT_DIR') ?: '/tmp/pg-certs', '/');
+$sslRootCert = $certDir . '/ca.crt';
+$sslCert     = $certDir . '/client.crt';
+$sslKey      = $certDir . '/client.key';
+
+// pg_dump needs the role's password too (cert alone is no longer enough).
+// Passed through the environment, never on the command line, so it cannot be
+// read from the process list.
+putenv('PGPASSWORD=' . (getenv('DB_PASSWORD') ?: ''));
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $message = '';
@@ -34,7 +40,7 @@ if ($authenticated && $action === 'download') {
 
     // Exclude app_settings (contains crypto_key, passwords, S3 credentials)
     // Also exclude key_history (contains key hashes) and api_tokens (contains token hashes)
-    $cmd = "PGPASSWORD='' pg_dump \"{$connStr}\" --no-owner --no-acl --exclude-table=app_settings --exclude-table=key_history --exclude-table=api_tokens 2>&1";
+    $cmd = "pg_dump \"{$connStr}\" --no-owner --no-acl --exclude-table=app_settings --exclude-table=key_history --exclude-table=api_tokens 2>&1";
     $output = shell_exec($cmd);
 
     if ($output && strpos($output, 'FATAL') === false && strpos($output, 'ERROR') === false) {
@@ -67,7 +73,7 @@ if ($authenticated && $action === 'download_secrets') {
     $connStr = "host={$host} port={$port} dbname={$dbname} user={$user} sslmode=verify-full sslrootcert={$sslRootCert} sslcert={$sslCert} sslkey={$sslKey}";
 
     // Dump ONLY app_settings (secrets file — handle with extreme care)
-    $cmd = "PGPASSWORD='' pg_dump \"{$connStr}\" --no-owner --no-acl --data-only --table=app_settings 2>&1";
+    $cmd = "pg_dump \"{$connStr}\" --no-owner --no-acl --data-only --table=app_settings 2>&1";
     $output = shell_exec($cmd);
 
     if ($output && strpos($output, 'FATAL') === false && strpos($output, 'ERROR') === false) {
@@ -102,7 +108,7 @@ if ($authenticated && $action === 'view') {
     $connStr = "host={$host} port={$port} dbname={$dbname} user={$user} sslmode=verify-full sslrootcert={$sslRootCert} sslcert={$sslCert} sslkey={$sslKey}";
 
     // Exclude app_settings from view too
-    $cmd = "PGPASSWORD='' pg_dump \"{$connStr}\" --data-only --inserts --no-owner --no-acl --exclude-table=app_settings --exclude-table=key_history --exclude-table=api_tokens 2>&1";
+    $cmd = "pg_dump \"{$connStr}\" --data-only --inserts --no-owner --no-acl --exclude-table=app_settings --exclude-table=key_history --exclude-table=api_tokens 2>&1";
     $output = shell_exec($cmd);
 
     if ($output && strpos($output, 'FATAL') === false && strpos($output, 'ERROR') === false) {

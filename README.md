@@ -18,7 +18,8 @@ API client ──8443───> │             API APP (nginx + php-fpm)  ─�
                       └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **mTLS** ระหว่าง PHP กับ PostgreSQL (client cert required, `sslmode=verify-full`) — เว็บพอร์ทัลและ API ใช้ **client cert คนละใบ** (`CN=webapp` / `CN=apiapp`) map เป็น `appuser` ผ่าน `db/pg_ident.conf`
+- **ยืนยันตัวตนสองปัจจัยที่ชั้นฐานข้อมูล** — ทุก connection ต้องมีทั้ง **client certificate** ที่ออกโดย DemoCA **และ** รหัสผ่าน SCRAM ของ role นั้น (`pg_hba`: `scram-sha-256` + `clientcert=verify-full`) ฝั่ง client ใช้ `sslmode=verify-full` จึงตรวจ server cert ด้วยอีกทาง
+- เว็บพอร์ทัลและ API ใช้ **client cert คนละใบและ role คนละตัว** — `CN=webapp` ล็อกอินเป็น role `webapp`, `CN=apiapp` เป็น role `apiapp` (`clientcert=verify-full` บังคับให้ CN ตรงกับชื่อ role) ทั้งคู่เป็นสมาชิกของ role `appuser` ที่ถือสิทธิ์ตาราง
 - **pgcrypto** เข้ารหัสฟิลด์ `name`, `email`, `phone` ด้วย `pgp_sym_encrypt` (AES-256) + HMAC สำหรับค้นหา
 - **Object storage** (Garage) เข้ารหัสด้วย **SSE-C** และเข้าถึงได้เฉพาะเว็บพอร์ทัล — API ไม่มีสิทธิ์และไม่มี S3 config
 - **API APP แยก container/ image ของตัวเอง**: image มีแค่ `api.php`, `crud.php`, `db.php`, `mask.php` ไม่มีหน้า UI และเปิดเฉพาะ TLS
@@ -113,13 +114,13 @@ docker compose up --build
 | `certs/generate-certs.sh` | ออก DemoCA + cert ของ PostgreSQL, เว็บพอร์ทัล (CN=webapp) และ API (CN=apiapp, CN=api) |
 | `garage/tls/generate-garage-certs.sh` | ออก CA ภายในอีกใบ + cert ของ garage-tls (คนละ trust domain กับ DemoCA) |
 | `db/postgresql.conf` | เปิด SSL + ระบุ cert files |
-| `db/pg_hba.conf` | บังคับ `hostssl` + `clientcert=verify-full` |
+| `db/pg_hba.conf` | บังคับ `hostssl` + `scram-sha-256` + `clientcert=verify-full` (cert + รหัสผ่าน) |
 | `db/init.sql` | สร้าง `pgcrypto` extension + ตาราง `users` |
 | `Dockerfile` | image ของเว็บพอร์ทัล: PHP 8.3 + nginx + pdo_pgsql (ไม่รวม `api.php`) |
 | `api/Dockerfile` | image ของ API APP: PHP 8.3 + nginx + pdo_pgsql เฉพาะไฟล์ที่ API ใช้ |
 | `api/nginx.conf` | TLS-only บน `:443` เสิร์ฟเฉพาะ `/api.php/*` + `/health` path อื่นตอบ 404 |
 | `api/entrypoint.sh` | เตรียม client cert (`CN=apiapp`) + session dir แยกจากเว็บพอร์ทัล |
-| `db/pg_ident.conf` | map CN ของ client cert (`webapp`, `apiapp`) → `appuser` |
+| `db/init-user.sh` | สร้าง role `appuser` (ถือสิทธิ์, ล็อกอินไม่ได้) + `webapp` / `apiapp` (ล็อกอิน, รหัสผ่านคนละตัว) |
 | `web/html/db.php` | PDO connection ด้วย `sslmode=verify-full` + client cert |
 | `web/html/crud.php` | CRUD functions พร้อม `pgp_sym_encrypt`/`pgp_sym_decrypt` |
 | `web/html/index.php` | UI (TailwindCSS) สำหรับเพิ่ม/แก้ไข/ลบ/ดูผู้ใช้ |
@@ -129,9 +130,21 @@ docker compose up --build
 ลองเชื่อมต่อ PostgreSQL โดยไม่ใช้ client cert จะถูกปฏิเสธ:
 
 ```bash
-docker exec -it pg18-demo-db psql -U appuser -d appdb -h localhost
-# จะ fail เพราะไม่มี client cert
+docker exec -it pg18-demo-db psql -U webapp -d appdb -h 127.0.0.1
+# FATAL: connection requires a valid client certificate
 ```
+
+และถึงมี cert ถูกต้อง ถ้ารหัสผ่านผิดก็เข้าไม่ได้ (ปัจจัยที่สอง):
+
+```bash
+docker exec -e PGPASSWORD=wrong pg18-demo-web sh -c \
+  'PGSSLMODE=verify-full PGSSLROOTCERT=/tmp/pg-certs/ca.crt \
+   PGSSLCERT=/tmp/pg-certs/client.crt PGSSLKEY=/tmp/pg-certs/client.key \
+   psql -h db -U webapp -d appdb -c "select 1"'
+# FATAL: password authentication failed for user "webapp"
+```
+
+หน้า `mtls-test.php` ในเว็บรันชุดทดสอบนี้ให้ครบทุกกรณี (ไม่มี cert / cert ปลอม / CA ผิด / รหัสผ่านผิด)
 
 ดู log ของ PostgreSQL:
 

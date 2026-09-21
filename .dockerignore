@@ -1,0 +1,42 @@
+# Prevent sensitive files from entering Docker build context
+# (reduces risk of leaking secrets via remote builders or build cache)
+
+# Environment files with secrets
+.env
+.env.*
+*.env
+
+# Certificates and private keys
+certs/
+db/certs/
+web/certs/
+*.crt
+*.key
+*.pem
+
+# Docker files (not needed inside build context)
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.log

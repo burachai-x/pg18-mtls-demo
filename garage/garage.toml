@@ -1,0 +1,25 @@
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+
+db_engine = "lmdb"
+
+replication_factor = 1
+consistency_mode = "consistent"
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "garage:3901"
+# rpc_secret มาจาก env var GARAGE_RPC_SECRET (ไม่ hardcode ในนี้)
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "/run/garage/s3-api.sock"
+root_domain = ".s3.garage"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".web.garage"
+index = "index.html"
+
+[admin]
+api_bind_addr = "[::]:3903"
+# admin_token และ metrics_token มาจาก env vars (ไม่ hardcode)

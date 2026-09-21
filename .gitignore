@@ -1,0 +1,9 @@
+.env
+*.crt
+*.key
+*.srl
+*.csr
+certs/work/
+
+# graft index cache
+graft/

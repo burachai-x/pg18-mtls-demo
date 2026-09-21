@@ -1,0 +1,7 @@
+FROM dxflrs/garage:v2.3.0@sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690 AS garage-src
+
+FROM alpine:3.22
+
+COPY --from=garage-src /garage /usr/local/bin/garage
+
+# No curl/jq needed — init-bucket.sh uses only grep, awk, cut (busybox builtins)

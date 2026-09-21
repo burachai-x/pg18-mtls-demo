@@ -1,0 +1,6 @@
+# Exclude private keys and certs from build context
+# These are mounted as volumes at runtime, not needed in the image
+certs/
+*.key
+*.crt
+*.pem

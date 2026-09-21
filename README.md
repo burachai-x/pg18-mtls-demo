@@ -5,16 +5,17 @@ Demo การเชื่อมต่อ PostgreSQL 18 ด้วย **mTLS** (m
 ## สถาปัตยกรรม
 
 ```
-                       ┌──────────────────── backend (internal, ไม่มีเน็ตออก) ────────────────────┐
-                       │                                                                          │
-Browser ──8180/8444──> │  Web App Portal (nginx + php-fpm)  ──mTLS:5432 (CN=webapp)──> PostgreSQL │
-                       │        │                                                          ▲      │
-                       │        └── proxy /api.php ──TLS──┐                                │      │
-                       │                                  ▼                                │      │
-API client ──8446────> │              API APP (nginx + php-fpm)  ──mTLS:5432 (CN=apiapp)───┘      │
-                       │                                                                          │
-                       │  Web App Portal ──TLS:9443──> garage-tls ──unix socket──> Garage (S3)    │
-                       └──────────────────────────────────────────────────────────────────────────┘
+                      ┌───────────────────── backend (internal, ไม่มีเน็ตออก) ─────────────────────┐
+                      │                                                                            │
+Browser ──80/443────> │  Web App Portal (nginx + php-fpm)  ──mTLS:5432 (CN=webapp)──> PostgreSQL   │
+                      │       │                                                            ▲       │
+                      │       └── proxy /api.php ──TLS:443──┐                              │       │
+                      │                                     ▼                              │       │
+API client ──8443───> │             API APP (nginx + php-fpm)  ──mTLS:5432 (CN=apiapp)─────┘       │
+                      │                                                                            │
+                      │  Web App Portal ──TLS:443──> garage-tls ──unix socket──> Garage (Object    │
+                      │                                                           Storage, SSE-C)  │
+                      └────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **mTLS** ระหว่าง PHP กับ PostgreSQL (client cert required, `sslmode=verify-full`) — เว็บพอร์ทัลและ API ใช้ **client cert คนละใบ** (`CN=webapp` / `CN=apiapp`) map เป็น `appuser` ผ่าน `db/pg_ident.conf`
@@ -24,13 +25,18 @@ API client ──8446────> │              API APP (nginx + php-fpm)  �
 
 ### พอร์ต
 
-| พอร์ต (host) | บริการ |
-|---|---|
-| `8180` | Web App Portal (HTTP — redirect ไป HTTPS) |
-| `8444` | Web App Portal (HTTPS, TLS 1.3 + PQC hybrid) |
-| `8446` | **API APP** (HTTPS, cert `CN=api` ออกโดย DemoCA) |
+| พอร์ต (host) | บริการ | ตัวแปรใน `.env` |
+|---|---|---|
+| `80` | Web App Portal (HTTP — redirect ไป HTTPS) | `HTTP_PORT` |
+| `443` | Web App Portal (HTTPS, TLS 1.3 + PQC hybrid) | `HTTPS_PORT` |
+| `8443` | **API APP** (HTTPS, cert `CN=api` ออกโดย DemoCA) | `API_PORT` |
 
-ทุกพอร์ตผูกกับ `127.0.0.1`/`[::1]` เท่านั้น ส่วน PostgreSQL, Garage และ garage-tls ไม่เปิดพอร์ตออก host เลย
+ภายในเครือข่าย backend: **Object Storage = 443** (garage-tls), **Database = 5432** ตามผังด้านบน — ทั้งสองตัวไม่เปิดพอร์ตออก host เลย
+ส่วนพอร์ตที่เปิดออก host ผูกกับ `127.0.0.1`/`[::1]` เท่านั้น
+
+> API ใช้ `8443` เพราะพอร์ทัลถือ `443` บน host อยู่แล้ว (ภายใน container ทั้งคู่ฟัง `443`)
+> ถ้าเครื่องมีอะไรใช้ 80/443 อยู่ ให้แก้ `HTTP_PORT` / `HTTPS_PORT` ใน `.env` แล้ว `docker compose up -d` ใหม่
+> — container ผูก `:80`/`:443` ได้โดยไม่ต้องขอ capability `NET_BIND_SERVICE` เพราะตั้ง `net.ipv4.ip_unprivileged_port_start=0` ไว้ใน compose
 
 ## ขั้นตอนการรัน
 
@@ -57,9 +63,9 @@ docker compose ps          # db ต้องขึ้น (healthy)
 
 | URL | ใช้ทำอะไร |
 |---|---|
-| `https://localhost:8444` | เว็บพอร์ทัล (self-signed — ต้องกดยอมรับคำเตือน) |
-| `https://localhost:8446/health` | เช็คว่า API APP พร้อม |
-| `http://localhost:8180` | redirect ไป HTTPS |
+| `https://localhost` | เว็บพอร์ทัล (self-signed — ต้องกดยอมรับคำเตือน) |
+| `https://localhost:8443/health` | เช็คว่า API APP พร้อม |
+| `http://localhost` | redirect ไป HTTPS |
 
 รหัสผ่านเข้าเว็บคือค่า `SETTINGS_ADMIN_PASSWORD` ในไฟล์ `.env`:
 
@@ -111,7 +117,7 @@ docker compose up --build
 | `db/init.sql` | สร้าง `pgcrypto` extension + ตาราง `users` |
 | `Dockerfile` | image ของเว็บพอร์ทัล: PHP 8.3 + nginx + pdo_pgsql (ไม่รวม `api.php`) |
 | `api/Dockerfile` | image ของ API APP: PHP 8.3 + nginx + pdo_pgsql เฉพาะไฟล์ที่ API ใช้ |
-| `api/nginx.conf` | TLS-only, เสิร์ฟเฉพาะ `/api.php/*` + `/health` path อื่นตอบ 404 |
+| `api/nginx.conf` | TLS-only บน `:443` เสิร์ฟเฉพาะ `/api.php/*` + `/health` path อื่นตอบ 404 |
 | `api/entrypoint.sh` | เตรียม client cert (`CN=apiapp`) + session dir แยกจากเว็บพอร์ทัล |
 | `db/pg_ident.conf` | map CN ของ client cert (`webapp`, `apiapp`) → `appuser` |
 | `web/html/db.php` | PDO connection ด้วย `sslmode=verify-full` + client cert |
@@ -139,17 +145,17 @@ API รันเป็น service แยก เรียกได้ 2 ทาง
 
 ```bash
 # 1) เรียกตรงที่ API APP (cert ออกโดย DemoCA)
-curl --cacert api/certs/ca.crt https://localhost:8446/health
+curl --cacert api/certs/ca.crt https://localhost:8443/health
 curl --cacert api/certs/ca.crt -H "Authorization: Bearer <token>" \
-     https://localhost:8446/api.php/users
+     https://localhost:8443/api.php/users
 
 # 2) ผ่านเว็บพอร์ทัล (reverse proxy ไป API ด้วย TLS + proxy_ssl_verify)
-curl -k -H "Authorization: Bearer <token>" https://localhost:8444/api.php/users
+curl -k -H "Authorization: Bearer <token>" https://localhost/api.php/users
 ```
 
 ### เอา `<token>` มาจากไหน
 
-1. เปิด `https://localhost:8444` แล้ว login ด้วยค่า `SETTINGS_ADMIN_PASSWORD` ใน `.env`
+1. เปิด `https://localhost` แล้ว login ด้วยค่า `SETTINGS_ADMIN_PASSWORD` ใน `.env`
 2. ไปหน้า **Settings → API Tokens** ใส่ชื่อ label แล้วกดสร้าง
 3. ระบบจะแสดง token (`tok_…`) **ครั้งเดียว** — คัดลอกเก็บไว้ทันที เพราะฐานข้อมูลเก็บแค่ SHA-256 hash
 

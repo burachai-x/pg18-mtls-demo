@@ -13,6 +13,18 @@ chmod 600 "$CERT_DST/client.key"
 chmod 644 "$CERT_DST/ca.crt" "$CERT_DST/client.crt"
 export PGSSLMODE=verify-full
 
+# The HTTP listener redirects to HTTPS on the port the host publishes.
+# Default 443 means no port suffix in the URL; anything else is appended.
+PUBLIC_HTTPS_PORT="${PUBLIC_HTTPS_PORT:-443}"
+if [ "$PUBLIC_HTTPS_PORT" = "443" ]; then
+    REDIRECT_SUFFIX=""
+else
+    REDIRECT_SUFFIX=":${PUBLIC_HTTPS_PORT}"
+fi
+mkdir -p /run/nginx-conf
+printf 'return 301 https://localhost%s$request_uri;\n' "$REDIRECT_SUFFIX" > /run/nginx-conf/redirect.conf
+echo "[entrypoint] HTTP redirects to https://localhost${REDIRECT_SUFFIX}"
+
 # Generate self-signed certificate if not exists
 if [ ! -f /etc/nginx/ssl/selfsigned.crt ]; then
     echo "[entrypoint] Generating self-signed SSL certificate..."

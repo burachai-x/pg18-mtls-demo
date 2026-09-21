@@ -38,7 +38,7 @@ RUN rm -f /var/www/html/api.php
 # docker-compose: ./web/certs:/etc/postgresql-certs:ro
 
 # Expose ports (HTTP redirect + HTTPS + S3 proxy)
-EXPOSE 8180 8443 3901
+EXPOSE 80 443 3901
 
 # Start both nginx and php-fpm
 # Privilege separation:

@@ -38,7 +38,7 @@ COPY web/html/mask.php /var/www/html/mask.php
 # Client cert (CN=apiapp) and server cert are mounted read-only at runtime:
 # docker-compose: ./api/certs:/etc/api-certs:ro
 
-EXPOSE 8443
+EXPOSE 443
 
 COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

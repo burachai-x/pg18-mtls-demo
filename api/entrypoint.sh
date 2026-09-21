@@ -32,5 +32,5 @@ fi
 
 php-fpm -D
 
-echo "[api-entrypoint] API listening on :8443 (TLS, CN=api)"
+echo "[api-entrypoint] API listening on :443 (TLS, CN=api)"
 exec nginx -g 'daemon off;'

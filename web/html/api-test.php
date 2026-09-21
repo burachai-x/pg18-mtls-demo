@@ -25,7 +25,7 @@ require_once __DIR__ . '/crud.php';
                 ทดสอบ REST API สำหรับ CRUD — ต้องมี API token ใน header <code class="text-amber-400">Authorization: Bearer &lt;token&gt;</code>
             </p>
             <p class="text-slate-500 text-sm mt-2">
-                API รันอยู่ใน service แยก (<code class="text-cyan-400">api</code> container, TLS พอร์ต 8443 ภายใน / <code class="text-cyan-400">https://localhost:8446</code> จากเครื่อง host)
+                API รันอยู่ใน service แยก (<code class="text-cyan-400">api</code> container, TLS พอร์ต 443 ภายใน / <code class="text-cyan-400">https://localhost:8443</code> จากเครื่อง host)
                 — หน้านี้เรียกผ่าน reverse proxy ของเว็บพอร์ทัล เพื่อให้เป็น same-origin
             </p>
         </header>
@@ -173,7 +173,7 @@ require_once __DIR__ . '/crud.php';
         if (userId) url += '/' + userId;
 
         // เรียกตรงไปที่ API service (cert ออกโดย DemoCA — ใช้ --cacert แทน -k ได้)
-        const curl = `curl -X ${method} --cacert api/certs/ca.crt https://localhost:8446${url} \\\n  -H "Authorization: Bearer ${token}"` +
+        const curl = `curl -X ${method} --cacert api/certs/ca.crt https://localhost:8443${url} \\\n  -H "Authorization: Bearer ${token}"` +
             ((method === 'POST' || method === 'PUT') ? ` \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'` : '');
         document.getElementById('curlCmd').textContent = curl;
 

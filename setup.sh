@@ -116,8 +116,10 @@ Setup complete. Next:
 
 First start takes about 2 minutes (database init + seed), then:
 
-    Web portal   https://localhost:8444      (self-signed — accept the warning)
-    REST API     https://localhost:8446      curl --cacert api/certs/ca.crt https://localhost:8446/health
+    Web portal   https://localhost           (self-signed — accept the warning)
+    REST API     https://localhost:8443      curl --cacert api/certs/ca.crt https://localhost:8443/health
+
+(ports 80/443/8443 come from HTTP_PORT/HTTPS_PORT/API_PORT in .env)
 
 The portal login password is SETTINGS_ADMIN_PASSWORD in .env:
 
@@ -126,5 +128,5 @@ The portal login password is SETTINGS_ADMIN_PASSWORD in .env:
 Create an API token under Settings → API Tokens, then:
 
     curl --cacert api/certs/ca.crt -H "Authorization: Bearer <token>" \
-         https://localhost:8446/api.php/users
+         https://localhost:8443/api.php/users
 NEXT

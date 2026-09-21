@@ -59,16 +59,20 @@ services:
       dockerfile: Dockerfile
     container_name: pg18-demo-web
     ports:
-      - "127.0.0.1:8180:8180"
-      - "127.0.0.1:8444:8443"
-      - "[::1]:8180:8180"
-      - "[::1]:8444:8443"
+      # Standard web ports, matching the reference architecture.
+      # Override HTTP_PORT/HTTPS_PORT in .env if 80/443 are taken on the host.
+      - "127.0.0.1:${HTTP_PORT:-80}:80"
+      - "127.0.0.1:${HTTPS_PORT:-443}:443"
+      - "[::1]:${HTTP_PORT:-80}:80"
+      - "[::1]:${HTTPS_PORT:-443}:443"
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       S3_ENDPOINT: http://127.0.0.1:3901
+      # Where the HTTP listener should redirect to (matches the published port)
+      PUBLIC_HTTPS_PORT: ${HTTPS_PORT:-443}
       S3_REGION: garage
       S3_BUCKET: app-files
       # Secrets from env vars — not stored in DB
@@ -103,6 +107,9 @@ services:
     #   not a direct vulnerability: all request workers run as nginx/www-data,
     #   rootfs is read-only, and no-new-privileges prevents escalation.
     # - For production: use nginx unprivileged image + php-fpm socket, or sidecar pattern
+    sysctls:
+      # Bind :80/:443 inside the container without granting NET_BIND_SERVICE
+      net.ipv4.ip_unprivileged_port_start: 0
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -111,7 +118,7 @@ services:
     cap_add:
       # CHOWN/SETUID/SETGID: needed by entrypoint to chown files and su-exec to www-data
       # DAC_OVERRIDE/FOWNER: needed to override permissions during startup
-      # NET_BIND_SERVICE not needed — ports 8180/8443 are >1024
+      # NET_BIND_SERVICE not needed — ip_unprivileged_port_start=0 covers :80/:443
       - CHOWN
       - SETUID
       - SETGID
@@ -129,8 +136,9 @@ services:
       dockerfile: api/Dockerfile
     container_name: pg18-demo-api
     ports:
-      - "127.0.0.1:8446:8443"
-      - "[::1]:8446:8443"
+      # The portal owns 443 on the host, so the API is published on API_PORT
+      - "127.0.0.1:${API_PORT:-8443}:443"
+      - "[::1]:${API_PORT:-8443}:443"
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -152,13 +160,16 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "php -r '$$c=@fsockopen(\"127.0.0.1\", 8443); exit($$c ? 0 : 1);'" ]
+      test: [ "CMD-SHELL", "php -r '$$c=@fsockopen(\"127.0.0.1\", 443); exit($$c ? 0 : 1);'" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
     # Container hardening (same posture as web)
+    sysctls:
+      # Bind :443 inside the container without granting NET_BIND_SERVICE
+      net.ipv4.ip_unprivileged_port_start: 0
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -206,7 +217,9 @@ services:
 
   garage-tls:
     # TLS termination sidecar for Garage S3 API.
-    # Garage listens on Unix socket; this nginx terminates TLS on :9443.
+    # Garage listens on Unix socket; this nginx terminates TLS on :443 — the
+    # object-storage port in the reference architecture. Not published to the
+    # host: only the web portal reaches it, over the internal backend network.
     # Web nginx connects via HTTPS with proxy_ssl_verify — SSE-C key is encrypted in transit.
     image: nginxinc/nginx-unprivileged:stable-alpine@sha256:44e36330f74d4f3a1d4e222acca9e23b401fb87811a7597024502bb759c4dd49
     container_name: pg18-demo-garage-tls
@@ -219,8 +232,11 @@ services:
       - ./garage/tls/certs/server.crt:/etc/nginx/tls/server.crt:ro
       - ./garage/tls/certs/server.key:/etc/nginx/tls/server.key:ro
     expose:
-      - "9443"
+      - "443"
     read_only: true
+    sysctls:
+      # nginx runs as uid 1000 here — allow it to bind :443
+      net.ipv4.ip_unprivileged_port_start: 0
     tmpfs:
       - /tmp
     security_opt:
@@ -267,13 +283,13 @@ volumes:
   apinginxlogs:
 
 networks:
-  # Frontend: for web container's published ports (8180/8443)
+  # Frontend: for the published ports of web (80/443) and api
   # This network has access to the host and external networks.
   frontend:
     driver: bridge
   # Backend: internal-only network for DB, Garage, garage-tls, and web.
   # internal:true blocks outbound internet access from this network.
-  # SSE-C keys travel over TLS (web → garage-tls :9443) — no plaintext on network.
+  # SSE-C keys travel over TLS (web → garage-tls :443) — no plaintext on network.
   backend:
     driver: bridge
     internal: true

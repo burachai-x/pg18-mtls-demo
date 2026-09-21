@@ -27,10 +27,14 @@ services:
     command: >
       postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf -c ident_file=/etc/postgresql/pg_ident.conf
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      # Probe over TCP, not the local socket: during first-time init the entrypoint
+      # runs PostgreSQL with listen_addresses off, so a local-socket probe reports
+      # healthy while web/api still get "connection refused" on 5432.
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 120s
     restart: unless-stopped
     # Use tini as PID 1 to reap zombie processes (runuser doesn't reap children)
     init: true
@@ -89,6 +93,8 @@ services:
         condition: service_healthy
       garage-tls:
         condition: service_started
+      api:
+        condition: service_healthy
     restart: unless-stopped
     # Container hardening:
     # - rootfs read-only, no-new-privileges, cap_drop ALL
@@ -112,6 +118,61 @@ services:
       - DAC_OVERRIDE
       - FOWNER
     networks:
+      - frontend
+      - backend
+
+  api:
+    # API APP — its own container, image and DB identity (client cert CN=apiapp).
+    # Serves only /api.php over TLS; no UI pages and no object-storage access.
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: pg18-demo-api
+    ports:
+      - "127.0.0.1:8446:8443"
+      - "[::1]:8446:8443"
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      # Own cert directory — the API authenticates to PostgreSQL as CN=apiapp
+      PG_CERT_DIR: /tmp/api-pg-certs
+      PGCRYPTO_KEY: ${PGCRYPTO_KEY}
+    volumes:
+      - ./api/certs:/etc/api-certs:ro
+      # /tmp is shared with the web portal on purpose: the pgcrypto key lives in
+      # /tmp/.crypto_key and key rotation in the portal must reach this service
+      # too (stands in for a KMS in this demo). Cert and session dirs are separate.
+      - webtmp:/tmp
+      - apirun:/run
+      - apinginxtmp:/var/lib/nginx
+      - apinginxlogs:/var/log/nginx
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "php -r '$$c=@fsockopen(\"127.0.0.1\", 8443); exit($$c ? 0 : 1);'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    # Container hardening (same posture as web)
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    networks:
+      # frontend: published port for direct API clients
+      # backend:  mTLS connection to PostgreSQL
       - frontend
       - backend
 
@@ -201,6 +262,9 @@ volumes:
   webssl:
   webnginxtmp:
   webnginxlogs:
+  apirun:
+  apinginxtmp:
+  apinginxlogs:
 
 networks:
   # Frontend: for web container's published ports (8180/8443)

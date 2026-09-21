@@ -10,6 +10,8 @@
 certs/
 db/certs/
 web/certs/
+api/certs/
+garage/tls/certs/
 *.crt
 *.key
 *.pem

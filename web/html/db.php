@@ -12,9 +12,12 @@ function getDb(): PDO
     $dbname = getenv('DB_NAME') ?: 'appdb';
     $user   = getenv('DB_USER') ?: 'appuser';
 
-    $sslRootCert = '/tmp/pg-certs/ca.crt';
-    $sslCert     = '/tmp/pg-certs/client.crt';
-    $sslKey      = '/tmp/pg-certs/client.key';
+    // Cert directory is configurable so the API service can keep its own
+    // client identity (CN=apiapp) separate from the web portal's (CN=webapp).
+    $certDir     = rtrim(getenv('PG_CERT_DIR') ?: '/tmp/pg-certs', '/');
+    $sslRootCert = $certDir . '/ca.crt';
+    $sslCert     = $certDir . '/client.crt';
+    $sslKey      = $certDir . '/client.key';
 
     $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};"
          . "sslmode=verify-full;"

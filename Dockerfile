@@ -30,6 +30,10 @@ RUN echo "expose_php = Off" > /usr/local/etc/php/conf.d/hide-version.ini && \
 # Copy PHP app
 COPY web/html/ /var/www/html/
 
+# api.php belongs to the separate 'api' service — remove it from the portal image
+# so the REST API can only be served by that container (nginx proxies to it).
+RUN rm -f /var/www/html/api.php
+
 # Client certs for mTLS are mounted as read-only volume at runtime (not baked into image)
 # docker-compose: ./web/certs:/etc/postgresql-certs:ro
 

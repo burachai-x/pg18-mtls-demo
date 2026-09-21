@@ -24,6 +24,10 @@ require_once __DIR__ . '/crud.php';
             <p class="text-slate-400">
                 ทดสอบ REST API สำหรับ CRUD — ต้องมี API token ใน header <code class="text-amber-400">Authorization: Bearer &lt;token&gt;</code>
             </p>
+            <p class="text-slate-500 text-sm mt-2">
+                API รันอยู่ใน service แยก (<code class="text-cyan-400">api</code> container, TLS พอร์ต 8443 ภายใน / <code class="text-cyan-400">https://localhost:8446</code> จากเครื่อง host)
+                — หน้านี้เรียกผ่าน reverse proxy ของเว็บพอร์ทัล เพื่อให้เป็น same-origin
+            </p>
         </header>
 
         <!-- Token Info -->
@@ -129,6 +133,7 @@ require_once __DIR__ . '/crud.php';
                 <li>API ส่งข้อมูลแบบ <strong>masked</strong> เสมอ (ไม่ส่งข้อมูลเต็มผ่าน API)</li>
                 <li>การสร้าง/แก้ไขผ่าน API ก็เข้ารหัสด้วย <code>pgp_sym_encrypt</code> เหมือนหน้าเว็บ</li>
                 <li>มี audit log แยกสำหรับ action ผ่าน API (<code>API_CREATE</code>, <code>API_UPDATE</code>, <code>API_DELETE</code>)</li>
+                <li>API เป็นคนละ container กับเว็บพอร์ทัล และต่อ PostgreSQL ด้วย client cert ของตัวเอง (<code>CN=apiapp</code>) — image ไม่มีหน้า UI และไม่มีสิทธิ์เข้าถึง object storage</li>
             </ul>
         </div>
 
@@ -155,7 +160,8 @@ require_once __DIR__ . '/crud.php';
         let url = '/api.php/users';
         if (userId) url += '/' + userId;
 
-        const curl = `curl -X ${method} http://localhost:8180${url} \\\n  -H "Authorization: Bearer ${token}"` +
+        // เรียกตรงไปที่ API service (cert ออกโดย DemoCA — ใช้ --cacert แทน -k ได้)
+        const curl = `curl -X ${method} --cacert api/certs/ca.crt https://localhost:8446${url} \\\n  -H "Authorization: Bearer ${token}"` +
             ((method === 'POST' || method === 'PUT') ? ` \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'` : '');
         document.getElementById('curlCmd').textContent = curl;
 

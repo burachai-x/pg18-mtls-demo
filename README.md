@@ -4,6 +4,11 @@ Demo การเชื่อมต่อ PostgreSQL 18 ด้วย **mTLS** (m
 
 ## สถาปัตยกรรม
 
+![สถาปัตยกรรมของ pg18-mtls-demo](docs/architecture.drawio.png)
+
+<details>
+<summary>ผังแบบข้อความ (สำหรับอ่านใน terminal)</summary>
+
 ```
                       ┌───────────────────── backend (internal, ไม่มีเน็ตออก) ─────────────────────┐
                       │                                                                            │
@@ -17,6 +22,11 @@ API client ──8443───> │             API APP (nginx + php-fpm)  ─�
                       │                                                           Storage, SSE-C)  │
                       └────────────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
+
+> ไฟล์รูปอยู่ที่ `docs/architecture.drawio.png` และ `docs/architecture.drawio.svg` — ทั้งคู่**ฝัง XML ของ draw.io ไว้ในไฟล์** เปิดใน [draw.io](https://app.diagrams.net) หรือ draw.io desktop แล้วแก้ไขต่อได้ทันที
+
 
 - **ยืนยันตัวตนสองปัจจัยที่ชั้นฐานข้อมูล** — ทุก connection ต้องมีทั้ง **client certificate** ที่ออกโดย DemoCA **และ** รหัสผ่าน SCRAM ของ role นั้น (`pg_hba`: `scram-sha-256` + `clientcert=verify-full`) ฝั่ง client ใช้ `sslmode=verify-full` จึงตรวจ server cert ด้วยอีกทาง
 - เว็บพอร์ทัลและ API ใช้ **client cert คนละใบและ role คนละตัว** — `CN=webapp` ล็อกอินเป็น role `webapp`, `CN=apiapp` เป็น role `apiapp` (`clientcert=verify-full` บังคับให้ CN ตรงกับชื่อ role) ทั้งคู่เป็นสมาชิกของ role `appuser` ที่ถือสิทธิ์ตาราง
@@ -124,6 +134,7 @@ docker compose up --build
 | `web/html/db.php` | PDO connection ด้วย `sslmode=verify-full` + client cert |
 | `web/html/crud.php` | CRUD functions พร้อม `pgp_sym_encrypt`/`pgp_sym_decrypt` |
 | `web/html/index.php` | UI (TailwindCSS) สำหรับเพิ่ม/แก้ไข/ลบ/ดูผู้ใช้ |
+| `docs/architecture.drawio.png` / `.svg` | ผังสถาปัตยกรรม (ฝัง XML ของ draw.io — เปิดแก้ไขต่อได้) |
 
 ## ทดสอบว่า mTLS ทำงาน
 

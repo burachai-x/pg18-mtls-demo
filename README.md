@@ -34,6 +34,8 @@ API client ──8446────> │              API APP (nginx + php-fpm)  �
 
 ## ขั้นตอนการรัน
 
+ต้องมีบนเครื่อง: **Docker + Docker Compose**, `openssl`, `python3` (ใช้ตอน `setup.sh` สร้าง `.env`) — ตัวแอปทั้งหมดรันใน container
+
 ### เริ่มเร็ว (3 คำสั่ง)
 
 ```bash
@@ -77,12 +79,23 @@ docker compose up --build
 
 > ใบรับรองทั้งสองสคริปต์ออก CA ใหม่ทุกครั้งที่รัน แล้วลบ CA private key ทิ้ง — ถ้ารันซ้ำต้องรันครบชุดและ restart container ที่ mount ใบรับรองนั้น
 
-## ฟีเจอร์ของแอป
+## หน้าต่าง ๆ ในเว็บพอร์ทัล
 
-- **เพิ่มผู้ใช้** — กรอกชื่อ, email, เบอร์โทร → ข้อมูลถูกเข้ารหัส AES-256 ก่อนเก็บ
-- **ดูรายการ** — แสดงข้อมูลหลังถอดรหัสด้วย `pgp_sym_decrypt`
-- **แก้ไข** — อัปเดตข้อมูล (เข้ารหัสใหม่)
-- **ลบ** — ลบผู้ใช้
+ทุกหน้าต้อง login ด้วย `SETTINGS_ADMIN_PASSWORD` ก่อน
+
+| หน้า | ทำอะไร |
+|---|---|
+| `index.php` | CRUD ผู้ใช้ — เพิ่ม/แก้ไข/ลบ/ดู (เข้ารหัส AES-256 ก่อนเก็บ, ถอดรหัสตอนแสดง) |
+| `search.php` | ค้นหาข้อมูลที่เข้ารหัส — เทียบด้วย HMAC (ตรงตัว) กับแบบถอดรหัสทีละแถว |
+| `upload.php` | อัปโหลดไฟล์เข้า object storage พร้อม SSE-C |
+| `key-rotation.php` | หมุนคีย์ pgcrypto — เข้ารหัสข้อมูลทั้งตารางใหม่ + บันทึกประวัติคีย์ |
+| `audit.php` | Audit log ของทุก action (รวม `API_CREATE` / `API_UPDATE` / `API_DELETE`) |
+| `inspect.php` | วางข้อมูลใน DB (ciphertext + raw hex), ข้อมูลที่ถอดรหัสแล้ว และแบบ masked ไว้เทียบกัน |
+| `backup.php` | ดาวน์โหลด backup ที่ข้อมูลยังเข้ารหัสอยู่ (ไฟล์ secrets แยกต่างหาก) + วิเคราะห์ไฟล์ backup |
+| `mtls-test.php` | ทดลองต่อ PostgreSQL ทั้งแบบมีและไม่มี client cert ให้เห็นว่าฝั่งไม่มี cert ถูกปฏิเสธ |
+| `sse-c-test.php` | ทดสอบ SSE-C 3 กรณี: คีย์ถูก → ได้ไฟล์ต้นฉบับ, ไม่ส่งคีย์ → ได้ ciphertext, คีย์ผิด → AccessDenied |
+| `api-test.php` | ยิง REST API จากหน้าเว็บ (ผ่าน reverse proxy ไป API APP) |
+| `settings.php` | login/logout, ออกและปิดใช้งาน API token, ตั้งค่า masking |
 
 ## ไฟล์สำคัญ
 
@@ -134,7 +147,22 @@ curl --cacert api/certs/ca.crt -H "Authorization: Bearer <token>" \
 curl -k -H "Authorization: Bearer <token>" https://localhost:8444/api.php/users
 ```
 
-API token เริ่มต้นเป็น token แบบใช้ครั้งเดียว อายุ 10 นาที (สร้างตอน seed) — ออก token ใหม่ได้ที่หน้า Settings ของเว็บพอร์ทัล
+### เอา `<token>` มาจากไหน
+
+1. เปิด `https://localhost:8444` แล้ว login ด้วยค่า `SETTINGS_ADMIN_PASSWORD` ใน `.env`
+2. ไปหน้า **Settings → API Tokens** ใส่ชื่อ label แล้วกดสร้าง
+3. ระบบจะแสดง token (`tok_…`) **ครั้งเดียว** — คัดลอกเก็บไว้ทันที เพราะฐานข้อมูลเก็บแค่ SHA-256 hash
+
+token ที่ seed ให้ตอนติดตั้งเป็นแบบ **ใช้ครั้งเดียว อายุ 10 นาที** จึงใช้ทดสอบซ้ำไม่ได้
+
+## หยุด / ล้างข้อมูล
+
+```bash
+docker compose down        # หยุด container แต่เก็บข้อมูลไว้
+docker compose down -v     # หยุด + ลบ volume ทั้งหมด (ข้อมูล, ไฟล์ใน object storage, คีย์ที่หมุนไว้)
+```
+
+> `down -v` แล้วเริ่มใหม่จะ seed ข้อมูลตัวอย่างชุดใหม่ให้เอง แต่ไฟล์ที่เคยอัปโหลดและคีย์ที่หมุนไปแล้วจะหายถาวร
 
 ## หมายเหตุ
 
